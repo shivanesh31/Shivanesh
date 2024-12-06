@@ -1,0 +1,91 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import LabelEncoder
+import xgboost as xgb
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+import pickle
+
+# Load and prepare data (same as before)
+df = pd.read_csv(r"C:\Users\User\Downloads\cleaned_KL_data.csv")
+
+encoders = {
+    'location': LabelEncoder(),
+    'property_type': LabelEncoder(),
+    'furnished': LabelEncoder(),
+     #'size_category': LabelEncoder()
+}
+
+model_df = df.copy()
+for column, encoder in encoders.items():
+    model_df[f'{column}_encoded'] = encoder.fit_transform(model_df[column])
+
+feature_list = [
+    'size',
+    'rooms',
+    'bathroom',
+    'parking',
+    'additional_near_ktm/lrt',
+    'location_encoded',
+    'property_type_encoded',
+    'furnished_encoded'
+    #'price_per_sqft'
+]
+
+X = model_df[feature_list]
+y = model_df['monthly_rent']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Simplified parameter grid
+param_grid = {
+    'max_depth': [4, 6],
+    'learning_rate': [0.01, 0.1],
+    'n_estimators': [100, 200],
+    'min_child_weight': [3],
+    'subsample': [0.8],
+    'colsample_bytree': [0.8]
+}
+
+# Create base model
+xgb_model = xgb.XGBRegressor(random_state=42)
+
+# Perform grid search
+grid_search = GridSearchCV(
+    estimator=xgb_model,
+    param_grid=param_grid,
+    cv=3,  # Reduced from 5 to 3
+    scoring='neg_root_mean_squared_error',
+    verbose=1,
+    n_jobs=-1
+)
+
+grid_search.fit(X_train, y_train)
+
+# Print best parameters and score
+print("Best parameters:", grid_search.best_params_)
+print("Best RMSE:", -grid_search.best_score_)
+
+# Train final model with best parameters
+best_model = grid_search.best_estimator_
+y_pred = best_model.predict(X_test)
+
+# Calculate metrics
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+r2 = r2_score(y_test, y_pred)
+mae = mean_absolute_error(y_test, y_pred)
+
+print(f"Final RMSE: RM{rmse:.2f}")
+print(f"Final R2 Score: {r2:.4f}")
+print(f"Final MAE: RM{mae:.2f}")
+
+# Save model and artifacts
+model_artifacts = {
+    'model': best_model,
+    'encoders': encoders,
+    'feature_list': feature_list,
+    'best_params': grid_search.best_params_
+}
+
+with open('tuned_xgboost_model.pkl', 'wb') as file:
+    pickle.dump(model_artifacts, file)
